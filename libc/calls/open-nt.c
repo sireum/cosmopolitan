@@ -39,7 +39,9 @@
 #include "libc/nt/files.h"
 #include "libc/nt/process.h"
 #include "libc/nt/runtime.h"
+#include "libc/nt/struct/byhandlefileinformation.h"
 #include "libc/nt/struct/filebasicinfo.h"
+#include "libc/nt/struct/filemodeinformation.h"
 #include "libc/nt/synchronization.h"
 #include "libc/nt/thunk/msabi.h"
 #include "libc/str/str.h"
@@ -150,14 +152,14 @@ textwindows static intptr_t sys_open_nt_impl(int dirfd, const char *path,
                         kNtReadControl | kNtWriteDac;
 
   // open file, following symlinks
-  int64_t hand = CreateFile(path16, perm | extra_perm, share, &kNtIsInheritable,
+  int64_t hand = CreateFile(path16, perm | extra_perm, share, 0,
                             disp, attr | extra_attr, 0);
 
   // try again without greedy permissions if needed
   // our CreateFile() wrapper also retries without exec
   if (hand == -1)
     if (GetLastError() == kNtErrorAccessDenied)
-      hand = CreateFile(path16, perm, share, &kNtIsInheritable, disp,
+      hand = CreateFile(path16, perm, share, 0, disp,
                         attr | extra_attr, 0);
 
   // set errno on error
@@ -185,22 +187,72 @@ textwindows static bool sys_open_nt_used_explicit_drive_letter(const char *p) {
 textwindows static int sys_open_nt_file(int dirfd, const char *file,
                                         uint32_t flags, int32_t mode,
                                         size_t fd) {
-  intptr_t handle;
-  if ((handle = sys_open_nt_impl(dirfd, file, flags, mode,
-                                 kNtFileFlagOverlapped)) != -1) {
-    __get_pib()->fds.p[fd].handle = handle;
-    __get_pib()->fds.p[fd].flags = flags;
-    __get_pib()->fds.p[fd].mode = mode;
-    __get_pib()->fds.p[fd].used_explicit_drive_letter =
-        sys_open_nt_used_explicit_drive_letter(file);
-    if (!(flags & O_APPEND) || (flags & O_ACCMODE) != O_WRONLY) {
-      __fds_lock();
-      __get_pib()->fds.p[fd].cursor = __cursor_new();
-      __fds_unlock();
+  intptr_t original =
+      sys_open_nt_impl(dirfd, file, flags, mode, kNtFileFlagOverlapped);
+  if (original == -1)
+    return -1;
+  intptr_t handle = original;
+  bool regular =
+      !(flags & O_DIRECTORY) && GetFileType(original) == kNtFileTypeDisk;
+  if (regular && (flags & O_ACCMODE) == O_RDONLY) {
+    struct NtByHandleFileInformation info;
+    if (!GetFileInformationByHandle(original, &info)) {
+      __winerr();
+      goto Failed;
     }
-    __get_pib()->fds.p[fd].kind = kFdFile;
-    return fd;
-  } else {
+    regular = !(info.dwFileAttributes & kNtFileAttributeDirectory);
+  }
+  if (regular) {
+    unsigned attrs;
+    if (GetNtOpenFlags(flags & ~O_NOFOLLOW, mode, 0, 0, 0, &attrs) == -1)
+      goto Failed;
+    handle = __file_reopen_nt(original, attrs);
+    if (handle == -1 ||
+        __file_set_mode_nt(handle, kNtFileSynchronousIoNonalert,
+                          kNtFileSynchronousIoAlert) == -1)
+      goto Failed;
+  }
+
+  __fds_lock();
+  struct Cursor *cursor = 0;
+  if (regular || !(flags & O_APPEND) || (flags & O_ACCMODE) != O_WRONLY) {
+    if (!(cursor = __cursor_new())) {
+      enomem();
+      goto FailedLocked;
+    }
+  }
+  if (!SetHandleInformation(handle, kNtHandleFlagInherit,
+                            kNtHandleFlagInherit)) {
+    __winerr();
+    goto FailedLocked;
+  }
+  if (regular) {
+    cursor->positional_handle = original;
+    cursor->positional_owner = GetCurrentProcessId();
+  }
+  struct Fd *f = __get_pib()->fds.p + fd;
+  f->handle = handle;
+  f->flags = flags;
+  f->mode = mode;
+  f->used_explicit_drive_letter = sys_open_nt_used_explicit_drive_letter(file);
+  f->cursor = cursor;
+  f->kind = kFdFile;
+  __fds_unlock();
+  return fd;
+
+FailedLocked: {
+    int err = errno;
+    __fds_unlock();
+    if (cursor)
+      __cursor_unref(cursor);
+    errno = err;
+  }
+Failed: {
+    int err = errno;
+    if (handle != -1 && handle != original)
+      CloseHandle(handle);
+    CloseHandle(original);
+    errno = err;
     return -1;
   }
 }

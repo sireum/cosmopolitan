@@ -18,12 +18,46 @@
 ╚─────────────────────────────────────────────────────────────────────────────*/
 #include "libc/calls/internal.h"
 #include "libc/calls/syscall_support-nt.internal.h"
+#include "libc/errno.h"
 #include "libc/intrin/fds.h"
 #include "libc/nt/createfile.h"
 #include "libc/nt/enum/fileflagandattributes.h"
+#include "libc/nt/enum/filetype.h"
 #include "libc/nt/files.h"
+#include "libc/nt/process.h"
 #include "libc/nt/runtime.h"
+#include "libc/nt/struct/filemodeinformation.h"
 #include "libc/sysv/consts/o.h"
+#include "libc/sysv/errfuns.h"
+
+static textwindows int SetSynchronousFlags(struct Fd *f, unsigned flags) {
+  if ((flags ^ f->flags) & (O_APPEND | O_DIRECT))
+    return enotsup();
+  unsigned changed = f->flags ^ flags;
+  unsigned mask = (changed & O_DSYNC ? kNtFileWriteThrough : 0) |
+                  (changed & O_SEQUENTIAL ? kNtFileSequentialOnly : 0);
+  unsigned before = (f->flags & O_DSYNC ? kNtFileWriteThrough : 0) |
+                    (f->flags & O_SEQUENTIAL ? kNtFileSequentialOnly : 0);
+  unsigned after = before ^ mask;
+  struct Cursor *cursor = f->cursor;
+  if (cursor)
+    __cursor_lock(cursor);
+  int rc = __file_set_mode_nt(f->handle, mask, after & mask);
+  if (!rc && cursor && cursor->positional_handle &&
+      cursor->positional_owner == GetCurrentProcessId()) {
+    rc = __file_set_mode_nt(cursor->positional_handle, mask, after & mask);
+    if (rc == -1) {
+      int err = errno;
+      __file_set_mode_nt(f->handle, mask, before & mask);
+      errno = err;
+    }
+  }
+  if (!rc)
+    f->flags = flags;
+  if (cursor)
+    __cursor_unlock(cursor);
+  return rc;
+}
 
 textwindows int sys_fcntl_nt_setfl(struct Fd *fd, unsigned flags) {
 
@@ -32,13 +66,21 @@ textwindows int sys_fcntl_nt_setfl(struct Fd *fd, unsigned flags) {
   // - O_NONBLOCK     make read() raise EAGAIN
   // - O_APPEND       for toggling append mode
   // - O_DIRECT       works but haven't tested
+  // - O_SEQUENTIAL   configure sequential file caching
   //
   // the other bits are ignored.
-  unsigned allowed = O_APPEND | O_DIRECT | O_DSYNC | O_NONBLOCK;
-  unsigned needreo = O_APPEND | O_DIRECT | O_DSYNC;
+  unsigned needreo = O_APPEND | O_DIRECT | O_DSYNC | O_SEQUENTIAL;
+  unsigned allowed = needreo | O_NONBLOCK;
   unsigned newflag = (fd->flags & ~allowed) | (flags & allowed);
 
   if (fd->kind == kFdFile && ((fd->flags & needreo) ^ (flags & needreo))) {
+    if (GetFileType(fd->handle) == kNtFileTypeDisk) {
+      int sync = __file_sync_nt(fd->handle);
+      if (sync == -1)
+        return -1;
+      if (sync)
+        return SetSynchronousFlags(fd, newflag);
+    }
     unsigned perm, share, attr;
     if (GetNtOpenFlags(newflag, fd->mode, &perm, &share, 0, &attr) == -1)
       return -1;

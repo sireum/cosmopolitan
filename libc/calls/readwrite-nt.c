@@ -17,6 +17,7 @@
 │ PERFORMANCE OF THIS SOFTWARE.                                                │
 ╚─────────────────────────────────────────────────────────────────────────────*/
 #include "libc/calls/internal.h"
+#include "libc/calls/calls.h"
 #include "libc/calls/sig.internal.h"
 #include "libc/calls/struct/rlimit.h"
 #include "libc/calls/struct/sigset.h"
@@ -45,6 +46,7 @@
 #include "libc/sysv/errfuns.h"
 #include "libc/sysv/errno.h"
 #include "libc/sysv/pib.h"
+#include "libc/thread/posixthread.internal.h"
 #include "libc/thread/tls.h"
 #if SupportsWindows()
 
@@ -56,6 +58,76 @@ static inline void RaiseSignal(int sig) {
     _weaken(__sig_raise)(sig, SI_KERNEL);
   } else {
     TerminateThisProcess(sig);
+  }
+}
+
+static textwindows int CheckWriteLimit(struct Fd *f, size_t size) {
+  uint64_t limit = ~__get_pib()->rlimit[RLIMIT_FSIZE].rlim_cur;
+  if (limit == -1ull)
+    return 0;
+  int64_t offset;
+  if (f->flags & O_APPEND) {
+    struct NtByHandleFileInformation info;
+    if (!GetFileInformationByHandle(f->handle, &info))
+      return __winerr();
+    offset = (uint64_t)info.nFileSizeHigh << 32 | info.nFileSizeLow;
+  } else if ((offset = __file_seek_nt(f->handle, 0, SEEK_CUR)) == -1) {
+    return -1;
+  }
+  return (uint64_t)offset + size > limit;
+}
+
+static textwindows ssize_t ReadWriteSynchronous(
+    struct Fd *f, void *data, size_t size, sigset_t waitmask,
+    bool32 ReadOrWriteFile(int64_t, void *, uint32_t, uint32_t *,
+                           struct NtOverlapped *)) {
+  struct PosixThread *pt = _pthread_self();
+  for (;;) {
+    uint32_t exchanged = 0;
+    int got_sig = 0;
+    bool32 ok = false;
+    uint32_t error = kNtErrorOperationAborted;
+    if (f->cursor)
+      __cursor_lock(f->cursor);
+    if (ReadOrWriteFile == (void *)WriteFile) {
+      int over_limit = CheckWriteLimit(f, size);
+      if (over_limit) {
+        if (f->cursor)
+          __cursor_unlock(f->cursor);
+        if (over_limit == -1)
+          return -1;
+        RaiseSignal(SIGXFSZ);
+        return efbig();
+      }
+    }
+    __sig_io_begin(pt, waitmask);
+    if (!_is_canceled() &&
+        !(_weaken(__sig_get) && (got_sig = _weaken(__sig_get)(waitmask)))) {
+      ok = ReadOrWriteFile(f->handle, data, size, &exchanged, 0);
+      error = GetLastError();
+    }
+    if (f->cursor)
+      __cursor_unlock(f->cursor);
+    __sig_io_end(pt);
+    if (ok || exchanged)
+      return exchanged;
+    if (error != kNtErrorOperationAborted) {
+      SetLastError(error);
+      return -2;
+    }
+    if (_check_cancel() == -1)
+      return -1;
+    if (_weaken(__sig_get)) {
+      int handled = 0;
+      do {
+        if (got_sig)
+          handled |= _weaken(__sig_relay)(got_sig, SI_KERNEL, waitmask);
+      } while ((got_sig = _weaken(__sig_get)(waitmask)));
+      if (_check_cancel() == -1)
+        return -1;
+      if (handled & SIG_HANDLED_NO_RESTART)
+        return eintr();
+    }
   }
 }
 
@@ -81,6 +153,17 @@ sys_readwrite_nt(int fd, void *data, size_t size, ssize_t offset,
   bool appending = isdisk && ReadOrWriteFile == (void *)WriteFile &&
                    (f->flags & O_APPEND) && f->cursor;
   bool pwriting = offset != -1;
+  if (isdisk) {
+    int sync = __file_sync_nt(handle);
+    if (sync == -1)
+      return -1;
+    if (sync) {
+      if (!pwriting)
+        return ReadWriteSynchronous(f, data, size, waitmask, ReadOrWriteFile);
+      if ((handle = __file_positional_nt(f)) == -1)
+        return -1;
+    }
+  }
   bool seekable = isdisk || f->kind == kFdDevNull || f->kind == kFdDevRandom;
   if (pwriting && !seekable)
     return espipe();

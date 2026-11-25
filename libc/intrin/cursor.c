@@ -21,6 +21,8 @@
 #include "libc/calls/state.internal.h"
 #include "libc/intrin/atomic.h"
 #include "libc/intrin/fds.h"
+#include "libc/nt/process.h"
+#include "libc/nt/runtime.h"
 #include "libc/runtime/runtime.h"
 #include "libc/sysv/pib.h"
 #include "libc/thread/posixthread.internal.h"
@@ -63,6 +65,12 @@ bool __cursor_ref(struct Cursor *c) {
 void __cursor_unref(struct Cursor *c) {
   if (atomic_fetch_sub_explicit(&c->refs, 1, memory_order_release))
     return;
+  atomic_thread_fence(memory_order_acquire);
+  if (IsWindows() && c->positional_handle &&
+      c->positional_owner == GetCurrentProcessId())
+    CloseHandle(c->positional_handle);
+  c->positional_handle = 0;
+  c->positional_owner = 0;
   // we've now established that, within this process, no file descriptor
   // exists that's using this cursor. however while the cursor was being
   // used, fork() or execve() could have enabled it to spread elsewhere!

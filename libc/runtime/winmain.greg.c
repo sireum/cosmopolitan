@@ -243,19 +243,13 @@ abi wontreturn static void WinInit(const char16_t *cmdline) {
   int count = GetDosArgv(cmdline, wa->argblock, ARRAYLEN(wa->argblock),
                          wa->argv, ARRAYLEN(wa->argv));
 
-  // unixify dos absolute paths
-  for (int i = 0; wa->argv[i]; ++i) {
-    if (IsAlpha(wa->argv[i][0]) &&  //
-        wa->argv[i][1] == ':' &&    //
-        wa->argv[i][2] == '\\') {
-      // turn c:/... into /c/...
-      wa->argv[i][1] = wa->argv[i][0];
-      wa->argv[i][0] = '/';
-      // use forward slashes
-      for (int j = 0; wa->argv[i][j]; ++j)
-        if (wa->argv[i][j] == '\\')
-          wa->argv[i][j] = '/';
-    }
+  char *exename = wa->argv[0];
+  if (exename && IsAlpha(exename[0]) && exename[1] == ':' && exename[2] == '\\') {
+    exename[1] = exename[0];
+    exename[0] = '/';
+    for (int i = 0; exename[i]; ++i)
+      if (exename[i] == '\\')
+        exename[i] = '/';
   }
 
   // translate utf-16 win32 environment into utf-8 environment variables

@@ -178,6 +178,10 @@ textwindows static void sys_fork_nt_child(void) {
       AbortFork("VirtualProtectEx", map->addr);
   }
 
+  atomic_store_explicit(&_pthread_self()->pt_io_wake_lock, 0,
+                        memory_order_relaxed);
+  _pthread_self()->pt_io_wake_pending = false;
+
   // function tracing is now safe
   ftrace_enabled(+1);
 

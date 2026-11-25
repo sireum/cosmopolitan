@@ -16,6 +16,7 @@
 │ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR             │
 │ PERFORMANCE OF THIS SOFTWARE.                                                │
 ╚─────────────────────────────────────────────────────────────────────────────*/
+#include "libc/calls/syscall-nt.internal.h"
 #include "libc/dce.h"
 #include "libc/intrin/promises.h"
 #include "libc/intrin/strace.h"
@@ -89,6 +90,8 @@ wontreturn void _Exit(int exitcode) {
     // What Microsoft calls an exit code, POSIX calls a status code. See
     // also the WEXITSTATUS() and WIFEXITED() macros that POSIX defines.
     waitstatus = exitcode;
+    if (!sys_has_cosmo_parent_nt())
+      TerminateThisProcess(waitstatus);
     waitstatus <<= 8;
     // "The GetExitCodeProcess function returns a valid error code
     //  defined by the application only after the thread terminates.

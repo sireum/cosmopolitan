@@ -20,6 +20,7 @@
 #include "libc/calls/sig.internal.h"
 #include "libc/calls/struct/flock.h"
 #include "libc/calls/struct/sigset.h"
+#include "libc/calls/syscall-nt.internal.h"
 #include "libc/calls/syscall_support-nt.internal.h"
 #include "libc/dce.h"
 #include "libc/errno.h"
@@ -31,6 +32,7 @@
 #include "libc/nt/events.h"
 #include "libc/nt/files.h"
 #include "libc/nt/memory.h"
+#include "libc/nt/process.h"
 #include "libc/nt/runtime.h"
 #include "libc/nt/struct/overlapped.h"
 #include "libc/nt/synchronization.h"
@@ -233,6 +235,10 @@ textwindows static bool32 __flocks_lockfileu(intptr_t hand, uint32_t flags,
 textwindows static int __flocks_lockfile(int64_t hand, uint32_t flags,
                                          int64_t off, int64_t len,
                                          sigset_t waitmask) {
+  int sync = __file_sync_nt(hand);
+  if (sync == -1)
+    return -1;
+  struct PosixThread *pt = _pthread_self();
   for (;;) {
     int got_sig = 0;
     uint32_t other_error = 0;
@@ -242,8 +248,22 @@ textwindows static int __flocks_lockfile(int64_t hand, uint32_t flags,
       return __winerr();
 
     struct NtOverlapped overlap = {.hEvent = event, .Pointer = off};
-    bool32 ok = LockFileEx(hand, flags, 0, len, len >> 32, &overlap);
-    if (!ok && GetLastError() == kNtErrorIoPending) {
+    bool32 ok;
+    if (SupportsWindows() && sync && !(flags & kNtLockfileFailImmediately)) {
+      __sig_io_begin(pt, waitmask);
+      if (_is_canceled() ||
+          (_weaken(__sig_get) && (got_sig = _weaken(__sig_get)(waitmask)))) {
+        SetLastError(kNtErrorOperationAborted);
+        ok = false;
+      } else {
+        ok = LockFileEx(hand, flags, 0, len, len >> 32, &overlap);
+      }
+      __sig_io_end(pt);
+    } else {
+      ok = LockFileEx(hand, flags, 0, len, len >> 32, &overlap);
+    }
+    bool pending = !ok && GetLastError() == kNtErrorIoPending;
+    if (pending) {
       intptr_t sigev;
       if ((sigev = __interruptible_start(waitmask))) {
         if (_is_canceled()) {
@@ -270,7 +290,7 @@ textwindows static int __flocks_lockfile(int64_t hand, uint32_t flags,
       }
       ok = true;
     }
-    if (ok) {
+    if (ok && (!sync || pending)) {
       uint32_t exchanged;
       ok = GetOverlappedResult(hand, &overlap, &exchanged, true);
     }
@@ -581,7 +601,8 @@ textwindows int __flocks_fcntl(struct Fd *f, int fd, int cmd, uintptr_t arg,
       bot = 0;
       break;
     case SEEK_CUR:
-      bot = f->cursor->shared->pointer;
+      if ((bot = sys_lseek_nt(fd, 0, SEEK_CUR)) == -1)
+        return -1;
       break;
     case SEEK_END:
       if (!gotfileinfo)

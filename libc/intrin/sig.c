@@ -317,16 +317,23 @@ textwindows wontreturn static void __sig_terminate(int sig) {
 }
 
 textwindows static void __sig_wake(struct PosixThread *pt) {
-  atomic_int *blocker;
-  if ((blocker = atomic_exchange(&pt->pt_blocker, 0))) {
-    if (atomic_load(&pt->tib->tib_sigpending) & ~pt->pt_blkmask) {
-      if (blocker == PT_BLOCKER_EVENT) {
-        SetEvent(pt->pt_event);
-      } else {
-        WakeByAddressSingle(blocker);
-      }
+  atomic_int *blocker = atomic_load(&pt->pt_blocker);
+  while (blocker) {
+    if (blocker == PT_BLOCKER_NT_IO) {
+      __sig_io_wake(pt);
+      return;
     }
-    atomic_store(&pt->pt_blocker, blocker);
+    if (atomic_compare_exchange_weak(&pt->pt_blocker, &blocker, 0)) {
+      if (atomic_load(&pt->tib->tib_sigpending) & ~pt->pt_blkmask) {
+        if (blocker == PT_BLOCKER_EVENT) {
+          SetEvent(pt->pt_event);
+        } else {
+          WakeByAddressSingle(blocker);
+        }
+      }
+      atomic_store(&pt->pt_blocker, blocker);
+      return;
+    }
   }
 }
 

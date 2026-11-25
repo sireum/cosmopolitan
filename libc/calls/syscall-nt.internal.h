@@ -20,6 +20,7 @@ int sys_ftruncate_nt(int64_t, uint64_t);
 int sys_getloadavg_nt(double *, int);
 int sys_getppid_nt(void);
 int sys_getppid_nt_win32(void);
+bool sys_has_cosmo_parent_nt(void);
 int sys_getpriority_nt(int, unsigned);
 int sys_kill_nt(int, int);
 int sys_linkat_nt(int, const char *, int, const char *);

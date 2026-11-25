@@ -24,6 +24,7 @@
 #define _O_PATH     0x00200000
 #define _O_TMPFILE  0x00400000
 #define O_UNLINK    0x10000000
+#define O_SEQUENTIAL 0x40000000
 
 #define O_NDELAY O_NONBLOCK
 

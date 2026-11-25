@@ -10,6 +10,7 @@
 #include "libc/thread/tls.h"
 
 #define PT_BLOCKER_EVENT ((atomic_int *)-1)
+#define PT_BLOCKER_NT_IO ((atomic_int *)-2)
 
 COSMOPOLITAN_C_START_
 
@@ -82,13 +83,19 @@ struct PosixThread {
   struct CosmoTib *tib;       // middle of tls allocation
   struct Dll list;            // list of threads
   struct _pthread_cleanup_buffer *pt_cleanup;
-  uint64_t pt_blkmask;
+  atomic_ulong pt_blkmask;
   int64_t pt_event;
   locale_t pt_locale;
   intptr_t pt_exiter[5];
   pthread_attr_t pt_attr;
   atomic_bool pt_intoff;
+  atomic_int pt_io_wake_lock;
+  bool pt_io_wake_pending;
 };
+
+void __sig_io_begin(struct PosixThread *, uint64_t);
+void __sig_io_wake(struct PosixThread *);
+void __sig_io_end(struct PosixThread *);
 
 typedef void (*atfork_f)(void);
 

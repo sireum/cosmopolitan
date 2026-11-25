@@ -35,6 +35,7 @@ int64_t CreateThread(const struct NtSecurityAttributes *lpThreadAttributes,
                      void *lpParameter, uint32_t dwCreationFlags,
                      uint32_t *opt_lpThreadId) paramsnonnull((3));
 
+uint32_t QueueUserAPC(void (__msabi *)(uintptr_t), int64_t, uintptr_t);
 void ExitThread(uint32_t dwExitCode) wontreturn;
 int64_t GetCurrentThread(void);
 uint32_t GetCurrentThreadId(void);

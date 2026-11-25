@@ -18,7 +18,9 @@
 ╚─────────────────────────────────────────────────────────────────────────────*/
 #include "libc/calls/internal.h"
 #include "libc/calls/struct/sigset.internal.h"
+#include "libc/calls/syscall_support-nt.internal.h"
 #include "libc/dce.h"
+#include "libc/nt/enum/fileflagandattributes.h"
 #include "libc/nt/errors.h"
 #include "libc/nt/events.h"
 #include "libc/nt/files.h"
@@ -77,16 +79,21 @@ textwindows int IsWindowsExecutable(int64_t handle, const char16_t *path) {
   // access() and stat() aren't cancelation points
   char buf[2] = {0};
   BLOCK_SIGNALS;
+  int sync = __file_sync_nt(handle);
+  int64_t probe = sync > 0 ? __file_reopen_nt(handle, kNtFileFlagOverlapped)
+                           : handle;
   intptr_t hEvent;
-  if ((hEvent = CreateEventTls())) {
+  if (sync != -1 && probe != -1 && (hEvent = CreateEventTls())) {
     uint32_t got;
     struct NtOverlapped overlap = {.hEvent = hEvent};
-    if (!ReadFile(handle, buf, 2, &got, &overlap) &&
+    if (!ReadFile(probe, buf, 2, &got, &overlap) &&
         GetLastError() == kNtErrorIoPending) {
-      GetOverlappedResult(handle, &overlap, &got, true);
+      GetOverlappedResult(probe, &overlap, &got, true);
     }
     CloseEventTls(hEvent);
   }
+  if (probe != -1 && probe != handle)
+    CloseHandle(probe);
   ALLOW_SIGNALS;
 
   // it's an executable if it starts with `MZ` or `#!`

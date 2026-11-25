@@ -17,7 +17,6 @@
 #include "libc/ctype.h"
 #include "libc/limits.h"
 #include "libc/str/str.h"
-#include "libc/str/tab.h"
 #include "libc/sysv/errfuns.h"
 
 /**
@@ -66,23 +65,6 @@ textwindows int __mkunixpath(const char16_t *path,
       p[2] == '/') {
     p[1] = p[0];
     p[0] = '/';
-  }
-
-  // turn /c into / based on $SYSTEMDRIVE
-  // turn /c/... into /... based on $SYSTEMDRIVE
-  if (p[0] == '/' &&
-      kToLower[p[1] & 255] == kToLower[__getcosmosdrive() & 255]) {
-    if (p[2] == '/') {
-      // don't do this magic if we're qualifying /C/x/...
-      if (!(isalpha(p[3]) && (p[4] == '/' || !p[4]))) {
-        for (size_t i = 0; i < n - 2 + 1; ++i)
-          p[i] = p[2 + i];
-        n -= 2;
-      }
-    } else if (!p[2]) {
-      p[1] = 0;
-      n = 1;
-    }
   }
 
   return n;

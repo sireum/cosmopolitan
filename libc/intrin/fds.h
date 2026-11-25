@@ -26,6 +26,8 @@ struct Cursor {
   atomic_int refs;
   bool is_multiprocess;
   struct Cursor *next_free_cursor;
+  int64_t positional_handle;
+  uint32_t positional_owner;
 };
 
 struct Fd {

@@ -21,6 +21,8 @@
 
 COSMOPOLITAN_C_START_
 
+#define kNtInvalidHandleValue (-1L)
+
 char16_t *GetCommandLine(void) nosideeffect;
 char16_t *GetEnvironmentStrings(void) __wur;
 bool32 FreeEnvironmentStrings(char16_t *) paramsnonnull();

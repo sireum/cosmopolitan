@@ -95,6 +95,22 @@ char *realpath(const char *filename, char *resolved)
 		return 0;
 	}
 
+	if (IsWindows()) {
+		size_t i = 0;
+		while (filename[i]) {
+			if (i == PATH_MAX - 1) goto toolong;
+			output[i] = filename[i] == '\\' ? '/' : filename[i];
+			++i;
+		}
+		output[i] = 0;
+		if (isalpha((unsigned char)output[0]) && output[1] == ':' &&
+		    (output[2] == '/' || !output[2])) {
+			output[1] = output[0];
+			output[0] = '/';
+		}
+		filename = output;
+	}
+
 	/* Copy the path and handle ZipOS. */
 	l = strnlen(filename, sizeof stack);
 	if (!l) {

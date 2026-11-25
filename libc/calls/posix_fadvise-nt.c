@@ -19,12 +19,14 @@
 #include "libc/calls/internal.h"
 #include "libc/calls/struct/sigset.internal.h"
 #include "libc/calls/syscall-nt.internal.h"
+#include "libc/calls/syscall_support-nt.internal.h"
 #include "libc/errno.h"
 #include "libc/nt/createfile.h"
 #include "libc/nt/enum/fileflagandattributes.h"
 #include "libc/nt/enum/filetype.h"
 #include "libc/nt/files.h"
 #include "libc/nt/runtime.h"
+#include "libc/nt/struct/filemodeinformation.h"
 #include "libc/sysv/consts/posix.h"
 #include "libc/sysv/errno.h"
 #include "libc/sysv/pib.h"
@@ -59,10 +61,23 @@ textwindows static errno_t sys_posix_fadvise_nt_impl(int fd, uint64_t offset,
       return EINVAL;
   }
 
-  if (GetFileType(h1) == kNtFileTypePipe)
+  uint32_t type = GetFileType(h1);
+  if (type == kNtFileTypePipe)
     return ESPIPE;
 
   int e = errno;
+  if (type == kNtFileTypeDisk) {
+    int sync = __file_sync_nt(h1);
+    if (sync == -1 || sync) {
+      if (sync > 0)
+        sync = __file_set_mode_nt(
+            h1, kNtFileSequentialOnly,
+            advice == POSIX_FADV_SEQUENTIAL ? kNtFileSequentialOnly : 0);
+      errno_t err = sync == -1 ? errno : 0;
+      errno = e;
+      return err;
+    }
+  }
   if (GetNtOpenFlags(flags, mode, &perm, &share, 0, &attr) == -1) {
     errno_t err = errno;
     errno = e;

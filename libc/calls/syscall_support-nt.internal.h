@@ -7,6 +7,12 @@ COSMOPOLITAN_C_START_
 
 #define POLL_INTERVAL_MS 200
 
+int __file_sync_nt(int64_t);
+int __file_set_mode_nt(int64_t, unsigned, unsigned);
+int64_t __file_reopen_nt(int64_t, unsigned);
+int64_t __file_positional_nt(struct Fd *);
+int64_t __file_seek_nt(int64_t, int64_t, int);
+
 bool isdirectory_nt(const char *) libcesque;
 bool isregularfile_nt(const char *) libcesque;
 bool issymlink_nt(const char *) libcesque;

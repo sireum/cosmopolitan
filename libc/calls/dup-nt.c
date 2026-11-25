@@ -27,7 +27,9 @@
 #include "libc/intrin/fds.h"
 #include "libc/intrin/weaken.h"
 #include "libc/nt/files.h"
+#include "libc/nt/process.h"
 #include "libc/nt/runtime.h"
+#include "libc/runtime/internal.h"
 #include "libc/runtime/zipos.internal.h"
 #include "libc/sock/internal.h"
 #include "libc/str/str.h"
@@ -66,7 +68,8 @@ textwindows static int sys_dup_nt_impl(int oldfd, int newfd, int flags,
     }
   }
 
-  if (__isfdkind(oldfd, kFdZip)) {
+  bool iszip = __isfdkind(oldfd, kFdZip);
+  if (iszip) {
     handle = (intptr_t)_weaken(__zipos_keep)(
         (struct ZiposHandle *)(intptr_t)__get_pib()->fds.p[oldfd].handle);
   } else {
@@ -78,6 +81,17 @@ textwindows static int sys_dup_nt_impl(int oldfd, int newfd, int flags,
       __fds_unlock();
       return __winerr();
     }
+  }
+
+  if (newfd < 3 && !__vforked && !iszip &&
+      !SetStdHandle(kNtStdio[newfd], handle)) {
+    uint32_t error = GetLastError();
+    CloseHandle(handle);
+    if (reserved)
+      __releasefd(newfd);
+    __fds_unlock();
+    SetLastError(error);
+    return __winerr();
   }
 
   // close overwritten fd upon success

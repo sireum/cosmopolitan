@@ -69,19 +69,26 @@ textwindows int64_t sys_lseek_nt(int fd, int64_t offset, int whence) {
     return offset;
   } else if (__isfdkind(fd, kFdFile)) {
     struct Fd *f = __get_pib()->fds.p + fd;
-    switch (GetFileType(f->handle)) {
+    uint32_t type = GetFileType(f->handle);
+    switch (type) {
       case kNtFileTypeChar:
       case kNtFileTypePipe:
         return espipe();
       default:
         break;
     }
+    int sync = type == kNtFileTypeDisk ? __file_sync_nt(f->handle) : 0;
+    if (sync == -1)
+      return -1;
     int64_t res;
     if (f->cursor)
       __cursor_lock(f->cursor);
-    if ((res = Seek(f, offset, whence)) != -1)
+    if (sync) {
+      res = __file_seek_nt(f->handle, offset, whence);
+    } else if ((res = Seek(f, offset, whence)) != -1) {
       if (f->cursor)
         f->cursor->shared->pointer = res;
+    }
     if (f->cursor)
       __cursor_unlock(f->cursor);
     return res;

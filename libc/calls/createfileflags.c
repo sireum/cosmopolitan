@@ -34,7 +34,7 @@ textwindows int GetNtOpenFlags(int flags, int mode, uint32_t *out_perm,
 
   if (flags & ~(O_ACCMODE | O_APPEND | O_CREAT | O_EXCL | O_TRUNC | O_NOCTTY |
                 O_DIRECTORY | O_UNLINK | O_NONBLOCK | O_CLOEXEC | O_DIRECT |
-                _O_TMPFILE | O_DSYNC | O_LARGEFILE))
+                _O_TMPFILE | O_DSYNC | O_LARGEFILE | O_SEQUENTIAL))
     return einval();
 
   switch (flags & O_ACCMODE) {
@@ -131,6 +131,8 @@ textwindows int GetNtOpenFlags(int flags, int mode, uint32_t *out_perm,
   // flags for slowing down performance
   if (flags & O_DSYNC)
     attr |= kNtFileFlagWriteThrough;
+  if (flags & O_SEQUENTIAL)
+    attr |= kNtFileFlagSequentialScan;
   if (flags & O_DIRECT) {
     if (flags & O_APPEND)
       return einval();

@@ -115,22 +115,10 @@ dontinline textwindows static int sys_getcwd_nt(char *buf, size_t size) {
  *
  * On Windows, this function is implemented using GetCurrentDirectory()
  * and the path that returns is normalized to our UNIX conventions. You
- * might be in `C:\foo\bar` but this function will report `/C/foo/bar`.
- * If your `$SYSTEMDRIVE` environment variable's value is `C:` or `c:`,
- * then the returned path will be further shortened to `/foo/bar`. When
+ * might be in `C:\foo\bar` but this function will report `/C/foo/bar`. When
  * you're using very long paths and Cosmopolitan internally must insert
  * `\\?\` prefixes to keep WIN32 happy, those will be removed here too,
  * and then added back appropriately by system call wrappers internally
- *
- * An exception is made on Windows for paths like `/c/c` (which maps to
- * `C:\c`. If that's your current directory, and your SYSTEMDRIVE is C:
- * then this function won't shorten that path to `/c`. It may seem kind
- * of weird that multiple paths can point to the same resource. However
- * that's already the case with hard links. The smart thing to do when
- * using Cosmopolitan is to create a "dev drive" and put your UNIX-like
- * file structure there. Then you can configure your shell and programs
- * so that putenv("SYSTEMDRIVE=B:") happens in your init or shell prog.
- * Then simply don't put single letter filenames in the root directory.
  *
  * @param buf receives utf-8 path and isn't modified on error
  * @param size is byte capacity of `buf`

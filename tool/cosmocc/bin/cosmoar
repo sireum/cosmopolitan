@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 BIN=${0%/*}
 PROG=${0##*/}
 
@@ -31,7 +31,7 @@ FIRST=1
 STATE=0
 OUTPUT_X86_64=
 OUTPUT_AARCH64=
-INPUTS=
+INPUTS=()
 for x; do
   if [ $FIRST -eq 1 ]; then
     set --
@@ -47,14 +47,10 @@ for x; do
   elif [ $STATE -eq 1 ]; then
     OUTPUT_X86_64=$x
     STATE=2
-  elif [ x"$x" != x"${x#* }" ]; then
-    fatal_error "input arguments containing spaces unsupported"
   elif [ x"$x" != x"${x#@}" ]; then
     fatal_error "input argument @file not supported yet"
-  elif [ -z "$INPUTS" ]; then
-    INPUTS=$x
   else
-    INPUTS="$INPUTS $x"
+    INPUTS+=("$x")
   fi
 done
 if [ -z "$OUTPUT_X86_64" ]; then
@@ -77,9 +73,9 @@ mangle_object_path() {
   mangled_path="${outdir}.$arch/$outbas"
 }
 
-OBJECTS_X86_64=
-OBJECTS_AARCH64=
-for x in $INPUTS; do
+OBJECTS_X86_64=()
+OBJECTS_AARCH64=()
+for x in "${INPUTS[@]}"; do
   if [ ! -f "$x" ]; then
     fatal_error "$x: no such file"
   fi
@@ -87,17 +83,17 @@ for x in $INPUTS; do
   if [ ! -f "$mangled_path" ]; then
     fatal_error "$x: missing concomitant $mangled_path file"
   fi
-  OBJECTS_X86_64="${OBJECTS_X86_64} $x"
-  OBJECTS_AARCH64="${OBJECTS_AARCH64} $mangled_path"
+  OBJECTS_X86_64+=("$x")
+  OBJECTS_AARCH64+=("$mangled_path")
 done
 
 mangle_object_path "$OUTPUT_X86_64" aarch64
 OUTPUT_AARCH64="$mangled_path"
 
-"$AR_X86_64" "$@" "$OUTPUT_X86_64" $OBJECTS_X86_64 &
+"$AR_X86_64" "$@" "$OUTPUT_X86_64" "${OBJECTS_X86_64[@]}" &
 pid1=$!
 
-"$AR_AARCH64" "$@" "$OUTPUT_AARCH64" $OBJECTS_AARCH64 &
+"$AR_AARCH64" "$@" "$OUTPUT_AARCH64" "${OBJECTS_AARCH64[@]}" &
 pid2=$!
 
 if ! wait $pid1; then

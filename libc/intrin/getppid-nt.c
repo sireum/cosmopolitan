@@ -85,6 +85,10 @@ textwindows int sys_getppid_nt_win32(void) {
   return sys_getppid_nt_ntdll();
 }
 
+textwindows bool sys_has_cosmo_parent_nt(void) {
+  return __get_pib()->ppid_win32 != 0;
+}
+
 textwindows void sys_getppid_nt_wipe(int win32, int cosmo) {
   __get_pib()->ppid_win32 = win32;
   __get_pib()->ppid_cosmo = cosmo;
