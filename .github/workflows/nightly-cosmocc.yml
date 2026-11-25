@@ -47,14 +47,12 @@ jobs:
             archive="cosmocc-sireum-snapshot-${commit:0:12}.zip"
           fi
           printf 'archive=%s\ncommit=%s\n' "$archive" "$commit" >> "$GITHUB_OUTPUT"
-      - name: Get the pinned patched GCC bootstrap
-        env:
-          GH_TOKEN: ${{ secrets.COSMOCC_BOOTSTRAP_TOKEN || github.token }}
-          BOOTSTRAP_REPO: ${{ vars.COSMOCC_BOOTSTRAP_REPO || github.repository }}
+      - name: Get the stock SDK and patched GCC front ends
         run: |
-          gh release download cosmocc-4.0.2-sireum-win32.6 \
-            --repo "$BOOTSTRAP_REPO" --pattern cosmocc-4.0.2-sireum-win32.6.zip \
-            --output "$RUNNER_TEMP/cosmocc-bootstrap.zip"
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/cosmocc-bootstrap.zip" \
+            https://github.com/jart/cosmopolitan/releases/download/4.0.2/cosmocc-4.0.2.zip
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/cc1.zip" \
+            https://github.com/sireum/cosmopolitan/releases/download/gcc-14.1.0-sireum-windows-cc1/cosmocc-14.1-cc1-windows-mapping-fix.zip
       - name: Prepare the packaging runner
         run: |
           if ! command -v bsdtar >/dev/null; then
@@ -68,7 +66,8 @@ jobs:
           ARCHIVE: ${{ steps.source.outputs.archive }}
         run: |
           mkdir release
-          tool/cosmocc/package-sireum.sh "$RUNNER_TEMP/cosmocc-bootstrap.zip" "release/$ARCHIVE"
+          tool/cosmocc/package-sireum.sh \
+            "$RUNNER_TEMP/cosmocc-bootstrap.zip" "$RUNNER_TEMP/cc1.zip" "release/$ARCHIVE"
           cd release
           sha256sum "$ARCHIVE" | tee "$ARCHIVE.sha256"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

@@ -11,7 +11,7 @@ TMPDIR=${TMPDIR:-/tmp}
 if [ "$1" = "--version" ]; then
 cat <<EOF
 $PROG (GCC) $GCC_VERSION
-Cosmopolitan Libc 4.0.2+6d26dd25-sireum-win32.8-port
+Cosmopolitan Libc 4.0.2-6d26dd25-sireum.8
 Copyright (c) 2024 Justine Alexandra Roberts Tunney
 Cosmopolitan Libc and LLVM libcxx/compiler-rt are subject to non-GPL
 notice licenses, e.g. ISC, MIT, etc. Your compiled programs must embed
@@ -76,6 +76,14 @@ if [ ! -d "$TMPDIR" ]; then
     fatal_error "$TMPDIR: not a directory"
   fi
 fi
+
+case "$OSTYPE" in
+  cygwin*|msys*)
+    windows_tmpdir=$(CDPATH= cd -- "$TMPDIR" && pwd -W) ||
+      fatal_error "$TMPDIR: could not resolve Windows temporary directory"
+    export TMPDIR="$windows_tmpdir"
+    ;;
+esac
 
 use_gcc() {
   CLANG=0

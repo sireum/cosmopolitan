@@ -91,18 +91,19 @@ details on usage, run the `assimilate -h` command.
 
 ## Sireum fork releases
 
-The `Sireum Cosmocc` workflow packages the fork for x86-64 and AArch64.
-It reuses the verified patched GCC front ends from
-`cosmocc-4.0.2-sireum-win32.6.zip` and rebuilds the Cosmopolitan libraries
-and tools from the selected source.
+The `Sireum Cosmocc` workflow uses upstream `cosmocc-4.0.2.zip` to
+build the Cosmopolitan libraries and tools from the selected source for
+x86-64 and AArch64. The output SDK includes the two GCC 14.1.0 C front
+ends from `cosmocc-14.1-cc1-windows-mapping-fix.zip` with the Windows
+mapping fix and its source notices.
 
-Keep the bootstrap ZIP on the GitHub release `cosmocc-4.0.2-sireum-win32.6`.
-The workflow looks in this fork by default. For a bootstrap release in
-another repository, set the `COSMOCC_BOOTSTRAP_REPO` Actions variable to
-its `owner/repository`. For a private repository, set the
-`COSMOCC_BOOTSTRAP_TOKEN` Actions secret to a credential with read access
-to that repository's contents. The packager checks the archive against its
-pinned SHA-256 before extracting it.
+The release ZIP uses paths relative to the SDK root and stores file aliases
+with their target bytes so native Windows installations can extract them.
+
+The workflow downloads the stock SDK from the upstream `4.0.2` release
+and the patched front ends from this fork's `gcc-14.1.0-sireum-windows-cc1`
+release. The packager verifies both archives against pinned SHA-256
+hashes before extracting them.
 
 Tag a commit on `sireum` that contains this workflow using
 `cosmocc-<upstream-version>-<upstream-base-sha>-sireum.<revision>`.
@@ -113,7 +114,7 @@ files attached. Qualify the ZIP attached to the draft, then publish that
 draft from the Releases page.
 
 To run the packager locally on Linux with the APE loader and `bsdtar`, use
-`tool/cosmocc/package-sireum.sh BOOTSTRAP_ZIP OUTPUT_ZIP`. A manual
+`tool/cosmocc/package-sireum.sh BOOTSTRAP_ZIP PATCHED_CC1_ZIP OUTPUT_ZIP`. A manual
 workflow run on `sireum` uploads the archive as an Actions artifact.
 
 ## Binary archive format
