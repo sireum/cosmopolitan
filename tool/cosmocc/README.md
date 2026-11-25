@@ -89,6 +89,33 @@ convert APE programs to any architectures / OS combination. For further
 details on usage, run the `assimilate -h` command.
 
 
+## Sireum fork releases
+
+The `Sireum Cosmocc` workflow packages the fork for x86-64 and AArch64.
+It reuses the verified patched GCC front ends from
+`cosmocc-4.0.2-sireum-win32.6.zip` and rebuilds the Cosmopolitan libraries
+and tools from the selected source.
+
+Keep the bootstrap ZIP on the GitHub release `cosmocc-4.0.2-sireum-win32.6`.
+The workflow looks in this fork by default. For a bootstrap release in
+another repository, set the `COSMOCC_BOOTSTRAP_REPO` Actions variable to
+its `owner/repository`. For a private repository, set the
+`COSMOCC_BOOTSTRAP_TOKEN` Actions secret to a credential with read access
+to that repository's contents. The packager checks the archive against its
+pinned SHA-256 before extracting it.
+
+Tag a commit on `sireum` that contains this workflow using
+`cosmocc-<upstream-version>-<upstream-base-sha>-sireum.<revision>`.
+For example, `cosmocc-4.0.2-6d26dd25-sireum.8` produces
+`cosmocc-4.0.2-6d26dd25-sireum.8.zip` and its `.sha256` file.
+Pushing the tag builds the SDK and creates a draft release with both
+files attached. Qualify the ZIP attached to the draft, then publish that
+draft from the Releases page.
+
+To run the packager locally on Linux with the APE loader and `bsdtar`, use
+`tool/cosmocc/package-sireum.sh BOOTSTRAP_ZIP OUTPUT_ZIP`. A manual
+workflow run on `sireum` uploads the archive as an Actions artifact.
+
 ## Binary archive format
 
 The APE format includes another portability superpower: the ability to 

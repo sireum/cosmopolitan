@@ -1,24 +1,104 @@
-name: Nightly cosmocc
+name: Sireum Cosmocc
+
 on:
-  schedule:
-    # https://crontab.guru/#37_4_*_*_*
-    - cron: "37 4 * * *"
   workflow_dispatch:
+  push:
+    tags:
+      - 'cosmocc-*-sireum.*'
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
 concurrency:
-  group: ${{ github.workflow }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}
+
 jobs:
   build-cosmocc:
-    runs-on: ubuntu-latest
+    if: >
+      github.repository == 'sireum/cosmopolitan' &&
+      (github.ref == 'refs/heads/sireum' || startsWith(github.ref, 'refs/tags/cosmocc-'))
+    runs-on: ubuntu-24.04
+    outputs:
+      archive: ${{ steps.source.outputs.archive }}
+      commit: ${{ steps.source.outputs.commit }}
     steps:
-      - uses: actions/checkout@v4
-      - run: |
-          sudo cp build/bootstrap/ape.elf /usr/bin/ape
-          sudo sh -c "echo ':APE:M::MZqFpD::/usr/bin/ape:' >/proc/sys/fs/binfmt_misc/register"
-      - run: tool/cosmocc/package.sh
-      # https://github.com/actions/upload-artifact/issues/590
-      - uses: actions/upload-artifact@v4.3.5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          name: cosmocc
-          path: cosmocc
-          compression-level: 9
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+      - name: Select the SDK source
+        id: source
+        run: |
+          commit=$(git rev-parse HEAD)
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            if [[ ! "$GITHUB_REF_NAME" =~ ^cosmocc-[0-9]+\.[0-9]+\.[0-9]+-([a-f0-9]{8,40})-sireum\.[0-9]+$ ]]; then
+              echo "Expected tag cosmocc-<upstream-version>-<upstream-base-sha>-sireum.<revision>" >&2
+              exit 1
+            fi
+            git merge-base --is-ancestor "${BASH_REMATCH[1]}" "$commit"
+            git merge-base --is-ancestor "$commit" refs/remotes/origin/sireum
+            archive="$GITHUB_REF_NAME.zip"
+          else
+            archive="cosmocc-sireum-snapshot-${commit:0:12}.zip"
+          fi
+          printf 'archive=%s\ncommit=%s\n' "$archive" "$commit" >> "$GITHUB_OUTPUT"
+      - name: Get the pinned patched GCC bootstrap
+        env:
+          GH_TOKEN: ${{ secrets.COSMOCC_BOOTSTRAP_TOKEN || github.token }}
+          BOOTSTRAP_REPO: ${{ vars.COSMOCC_BOOTSTRAP_REPO || github.repository }}
+        run: |
+          gh release download cosmocc-4.0.2-sireum-win32.6 \
+            --repo "$BOOTSTRAP_REPO" --pattern cosmocc-4.0.2-sireum-win32.6.zip \
+            --output "$RUNNER_TEMP/cosmocc-bootstrap.zip"
+      - name: Prepare the packaging runner
+        run: |
+          if ! command -v bsdtar >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends libarchive-tools
+          fi
+          sudo install -m 755 build/bootstrap/ape.elf /usr/bin/ape
+          printf '%s\n' ':APE:M::MZqFpD::/usr/bin/ape:' | sudo tee /proc/sys/fs/binfmt_misc/register
+      - name: Package and verify the SDK
+        env:
+          ARCHIVE: ${{ steps.source.outputs.archive }}
+        run: |
+          mkdir release
+          tool/cosmocc/package-sireum.sh "$RUNNER_TEMP/cosmocc-bootstrap.zip" "release/$ARCHIVE"
+          cd release
+          sha256sum "$ARCHIVE" | tee "$ARCHIVE.sha256"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sireum-cosmocc
+          path: release/
+          compression-level: 0
+          if-no-files-found: error
+
+  draft-release:
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: build-cosmocc
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sireum-cosmocc
+          path: release
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARCHIVE: ${{ needs.build-cosmocc.outputs.archive }}
+          SOURCE_COMMIT: ${{ needs.build-cosmocc.outputs.commit }}
+        working-directory: release
+        run: |
+          sha256sum --check "$ARCHIVE.sha256"
+          tagged_commit=$(gh api "repos/$GITHUB_REPOSITORY/commits/refs/tags/$GITHUB_REF_NAME" --jq .sha)
+          test "$tagged_commit" = "$SOURCE_COMMIT"
+          gh release create "$GITHUB_REF_NAME" "$ARCHIVE" "$ARCHIVE.sha256" \
+            --repo "$GITHUB_REPOSITORY" --verify-tag --draft --title "$GITHUB_REF_NAME" \
+            --notes "Sireum Cosmocc SDK built from $SOURCE_COMMIT with the patched GCC 14.1.0 C front ends."
