@@ -1,44 +1,36 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-usage='Usage: package-sireum.sh BOOTSTRAP_ZIP PATCHED_CC1_ZIP OUTPUT_ZIP'
+usage='Usage: package-sireum.sh BOOTSTRAP_ZIP CC1_DIRECTORY OUTPUT_ZIP'
 bootstrap_zip=$(realpath -- "${1:?$usage}")
-cc1_zip=$(realpath -- "${2:?$usage}")
+rebuilt=$(realpath -- "${2:?$usage}")
 output_zip=$(realpath -m -- "${3:?$usage}")
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)
 test ! -e "$output_zip"
 
-printf '%s  %s\n' \
-  85b8c37a406d862e656ad4ec14be9f6ce474c1b436b9615e91a55208aced3f44 "$bootstrap_zip" \
-  e10490ea2926510c0c0cdeb1ae09109d62d07ddb7c209dc510b53724f71d840c "$cc1_zip" |
-  sha256sum --check --strict
+source "$repo/tool/cosmocc/sireum-bootstrap.sh"
 
 work=$(mktemp -d /tmp/sireum-cosmocc.XXXXXXXX)
 trap 'rm -rf -- "$work"' EXIT
 bootstrap="$work/bootstrap"
-rebuilt="$work/rebuilt"
 sdk="$work/sdk"
-unzip -q "$bootstrap_zip" -d "$bootstrap"
-unzip -q "$cc1_zip" -d "$rebuilt"
-(cd "$rebuilt" && sha256sum --check --strict SHA256SUMS)
-
 notices="$sdk/share/sireum-cosmopolitan/cc1-rebuild"
-mkdir -p "$sdk/bin" "$notices"
-cp -a "$bootstrap/libexec" "$bootstrap/lib" "$sdk/"
-cp -a "$bootstrap/bin/clang-format" "$sdk/bin/"
-cp -a "$rebuilt/README.md" "$rebuilt/SHA256SUMS" "$rebuilt/source" "$notices/"
+mkdir -p "$notices/source"
 for arch in x86_64 aarch64; do
-  cp -a "$bootstrap/bin/$arch-linux-cosmo-"* "$sdk/bin/"
+  digest=$(<"$rebuilt/$arch.sha256")
+  [[ "$digest" =~ ^[0-9a-f]{64}$ ]]
+  printf '%s  libexec/gcc/%s-linux-cosmo/14.1.0/cc1\n' "$digest" "$arch"
+done > "$notices/SHA256SUMS"
+(cd "$rebuilt" && sha256sum --check --strict "$notices/SHA256SUMS")
+cp "$repo/tool/cosmocc/cc1-rebuild.md" "$notices/README.md"
+cp "$repo/tool/cosmocc/windows-verified-unmap.patch" "$notices/source/"
+cp "$repo/tool/cosmocc/LICENSE.gpl3" "$notices/source/GCC-COPYING3"
+cp "$repo/LICENSE" "$notices/source/Cosmopolitan-LICENSE"
+
+stage_stock_toolchain "$bootstrap_zip" "$bootstrap" "$sdk"
+for arch in x86_64 aarch64; do
   cc1="libexec/gcc/$arch-linux-cosmo/14.1.0/cc1"
   install -m 755 "$rebuilt/$cc1" "$sdk/$cc1"
-  lib="$sdk/$arch-linux-cosmo/lib"
-  mkdir -p "$lib"
-  for archive in "$bootstrap/$arch-linux-cosmo/lib/"*.a; do
-    case "${archive##*/}" in
-      libcosmo.a|libcxx.a) ;;
-      *) cp -a "$archive" "$lib/" ;;
-    esac
-  done
 done
 
 cd "$repo"

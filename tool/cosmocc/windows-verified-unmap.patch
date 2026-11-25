@@ -1,0 +1,30 @@
+diff --git a/libc/intrin/mmap.c b/libc/intrin/mmap.c
+index cb39dd2b..84824f35 100644
+--- a/libc/intrin/mmap.c
++++ b/libc/intrin/mmap.c
+@@ -129,6 +129,15 @@ static int __muntrack(char *addr, size_t size, int pagesz,
+   struct Map *floor;
+ StartOver:
+   floor = __maps_floor(addr);
++  if (IsWindows()) {
++    // Reject partial views before removing any complete views.
++    for (map = floor; map && map->addr <= addr + size; map = __maps_next(map)) {
++      if (MAX(addr, map->addr) <
++              MIN(addr + PGUP(size), map->addr + PGUP(map->size)) &&
++          (addr > map->addr || addr + PGUP(size) < map->addr + PGUP(map->size)))
++        return einval();
++    }
++  }
+   for (map = floor; map && map->addr <= addr + size; map = next) {
+     next = __maps_next(map);
+     char *map_addr = map->addr;
+@@ -144,9 +153,6 @@ StartOver:
+       __maps.pages -= (map_size + pagesz - 1) / pagesz;
+       __maps.count -= 1;
+       __maps_check();
+-    } else if (IsWindows()) {
+-      STRACE("you can't carve up memory maps on windows ;_;");
+-      rc = einval();
+     } else if (addr <= map_addr) {
+       // shave off lefthand side of mapping
+       ASSERT(addr + PGUP(size) < map_addr + PGUP(map_size));

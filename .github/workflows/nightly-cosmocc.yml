@@ -9,6 +9,9 @@ on:
 permissions:
   contents: read
 
+env:
+  BOOTSTRAP_URL: https://github.com/jart/cosmopolitan/releases/download/4.0.2/cosmocc-4.0.2.zip
+
 defaults:
   run:
     shell: bash
@@ -17,10 +20,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
-  build-cosmocc:
+  select-source:
     if: >
       github.repository == 'sireum/cosmopolitan' &&
-      (github.ref == 'refs/heads/sireum' || startsWith(github.ref, 'refs/tags/cosmocc-'))
+      (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/cosmocc-'))
     runs-on: ubuntu-24.04
     outputs:
       archive: ${{ steps.source.outputs.archive }}
@@ -47,12 +50,54 @@ jobs:
             archive="cosmocc-sireum-snapshot-${commit:0:12}.zip"
           fi
           printf 'archive=%s\ncommit=%s\n' "$archive" "$commit" >> "$GITHUB_OUTPUT"
-      - name: Get the stock SDK and patched GCC front ends
+  build-cc1:
+    needs: select-source
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [x86_64, aarch64]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.select-source.outputs.commit }}
+          persist-credentials: false
+      - name: Prepare the GCC runner
         run: |
-          curl --fail --location --retry 3 --output "$RUNNER_TEMP/cosmocc-bootstrap.zip" \
-            https://github.com/jart/cosmopolitan/releases/download/4.0.2/cosmocc-4.0.2.zip
-          curl --fail --location --retry 3 --output "$RUNNER_TEMP/cc1.zip" \
-            https://github.com/sireum/cosmopolitan/releases/download/gcc-14.1.0-sireum-windows-cc1/cosmocc-14.1-cc1-windows-mapping-fix.zip
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            binfmt-support bison flex libtool qemu-user-static texinfo
+          sudo update-binfmts --enable qemu-aarch64
+          test -r /proc/sys/fs/binfmt_misc/qemu-aarch64
+          sudo install -d -o "$(id -un)" -m 755 /zip
+          sudo install -m 755 build/bootstrap/ape.elf /usr/bin/ape
+          printf '%s\n' ':APE:M::MZqFpD::/usr/bin/ape:' | sudo tee /proc/sys/fs/binfmt_misc/register
+      - name: Rebuild the patched GCC front end
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/cosmocc-bootstrap.zip" "$BOOTSTRAP_URL"
+          tool/cosmocc/rebuild-sireum-cc1.sh \
+            "$TARGET" "$RUNNER_TEMP/cosmocc-bootstrap.zip" "$RUNNER_TEMP/cc1-$TARGET"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cc1-${{ matrix.target }}
+          path: ${{ runner.temp }}/cc1-${{ matrix.target }}/
+          if-no-files-found: error
+
+  build-cosmocc:
+    needs: [select-source, build-cc1]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.select-source.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: cc1-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/cc1
       - name: Prepare the packaging runner
         run: |
           if ! command -v bsdtar >/dev/null; then
@@ -63,11 +108,12 @@ jobs:
           printf '%s\n' ':APE:M::MZqFpD::/usr/bin/ape:' | sudo tee /proc/sys/fs/binfmt_misc/register
       - name: Package and verify the SDK
         env:
-          ARCHIVE: ${{ steps.source.outputs.archive }}
+          ARCHIVE: ${{ needs.select-source.outputs.archive }}
         run: |
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/cosmocc-bootstrap.zip" "$BOOTSTRAP_URL"
           mkdir release
           tool/cosmocc/package-sireum.sh \
-            "$RUNNER_TEMP/cosmocc-bootstrap.zip" "$RUNNER_TEMP/cc1.zip" "release/$ARCHIVE"
+            "$RUNNER_TEMP/cosmocc-bootstrap.zip" "$RUNNER_TEMP/cc1" "release/$ARCHIVE"
           cd release
           sha256sum "$ARCHIVE" | tee "$ARCHIVE.sha256"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -79,7 +125,7 @@ jobs:
 
   draft-release:
     if: github.event_name == 'push' && github.ref_type == 'tag'
-    needs: build-cosmocc
+    needs: [select-source, build-cosmocc]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -91,8 +137,8 @@ jobs:
       - name: Create the draft release
         env:
           GH_TOKEN: ${{ github.token }}
-          ARCHIVE: ${{ needs.build-cosmocc.outputs.archive }}
-          SOURCE_COMMIT: ${{ needs.build-cosmocc.outputs.commit }}
+          ARCHIVE: ${{ needs.select-source.outputs.archive }}
+          SOURCE_COMMIT: ${{ needs.select-source.outputs.commit }}
         working-directory: release
         run: |
           sha256sum --check "$ARCHIVE.sha256"
