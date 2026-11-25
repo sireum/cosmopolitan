@@ -115,8 +115,9 @@ by the build user, run
 `tool/cosmocc/rebuild-sireum-cc1.sh TARGET BOOTSTRAP_ZIP CC1_DIRECTORY`
 once for each target. Then run
 `tool/cosmocc/package-sireum.sh BOOTSTRAP_ZIP CC1_DIRECTORY OUTPUT_ZIP`
-with `bsdtar` installed. A manual workflow run uploads the SDK for the
-selected ref as an Actions artifact.
+with `bsdtar` installed. A push to a `sireum-cc1-build-*` branch or a
+manual workflow run uploads the SDK for qualification as an Actions
+artifact.
 
 ## Binary archive format
 

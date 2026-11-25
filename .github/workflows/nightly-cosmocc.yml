@@ -3,6 +3,8 @@ name: Sireum Cosmocc
 on:
   workflow_dispatch:
   push:
+    branches:
+      - 'sireum-cc1-build-*'
     tags:
       - 'cosmocc-*-sireum.*'
 
@@ -21,9 +23,7 @@ concurrency:
 
 jobs:
   select-source:
-    if: >
-      github.repository == 'sireum/cosmopolitan' &&
-      (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/cosmocc-'))
+    if: github.repository == 'sireum/cosmopolitan'
     runs-on: ubuntu-24.04
     outputs:
       archive: ${{ steps.source.outputs.archive }}
