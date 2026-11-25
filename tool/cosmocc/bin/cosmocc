@@ -11,7 +11,7 @@ TMPDIR=${TMPDIR:-/tmp}
 if [ "$1" = "--version" ]; then
 cat <<EOF
 $PROG (GCC) $GCC_VERSION
-Cosmopolitan Libc 4.0.2+6d26dd25-sireum-win32.7-port
+Cosmopolitan Libc 4.0.2+6d26dd25-sireum-win32.8-port
 Copyright (c) 2024 Justine Alexandra Roberts Tunney
 Cosmopolitan Libc and LLVM libcxx/compiler-rt are subject to non-GPL
 notice licenses, e.g. ISC, MIT, etc. Your compiled programs must embed

@@ -29,16 +29,12 @@
 /**
  * Creates symbolic link.
  *
- * Normal users can't create symbolic links on Windows. You need to
- * either (1) enable "Developer Mode" in your settings, or (2) use "Run
- * as administrator" when launching either your cosmo program, or when
- * launching the terminal program which will run your cosmo program
- * (since administrator mode is inherited across processes).
+ * Windows requires Developer Mode or the symbolic link creation privilege.
  *
  * @param target can be relative and needn't exist
  * @param linkpath is what gets created
  * @return 0 on success, or -1 w/ errno
- * @raise EPERM on Windows if lacking SeCreateSymbolicLinkPrivilege
+ * @raise EPERM if Windows denies symbolic link creation privileges
  * @raise EFAULT if `target` or `linkpath` point to bad memory
  * @raise ENOENT if `target` or `linkpath` is an empty string
  * @asyncsignalsafe

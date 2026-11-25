@@ -23,8 +23,10 @@
 #include "libc/limits.h"
 #include "libc/nt/enum/fileflagandattributes.h"
 #include "libc/nt/enum/symboliclink.h"
+#include "libc/nt/errors.h"
 #include "libc/nt/files.h"
 #include "libc/nt/memory.h"
+#include "libc/nt/runtime.h"
 #include "libc/str/str.h"
 #include "libc/sysv/errfuns.h"
 
@@ -47,15 +49,13 @@ textwindows static uint32_t sys_symlinkat_nt_flags(const char16_t *target,
   uint32_t attrs;
   if ((attrs = GetFileAttributes(target)) != -1u) {
     if (attrs & kNtFileAttributeDirectory)
-      return kNtSymbolicLinkFlagDirectory |
-             kNtSymbolicLinkFlagAllowUnprivilegedCreate;
+      return kNtSymbolicLinkFlagDirectory;
   } else {
     // broken symlinks aren't right, but it's legal
     if (bLooksLikeDir)
-      return kNtSymbolicLinkFlagDirectory |
-             kNtSymbolicLinkFlagAllowUnprivilegedCreate;
+      return kNtSymbolicLinkFlagDirectory;
   }
-  return kNtSymbolicLinkFlagAllowUnprivilegedCreate;
+  return 0;
 }
 
 textwindows static int sys_symlinkat_nt_impl2(const char *target, int newdirfd,
@@ -99,12 +99,14 @@ textwindows static int sys_symlinkat_nt_impl2(const char *target, int newdirfd,
     dwFlags = sys_symlinkat_nt_flags(m->resolved, bLooksLikeDir);
   }
 
-  // create symbolic link
-  if (!CreateSymbolicLink(m->linkpath, m->target, dwFlags))
-    return __fix_enotdir(__winerr(), m->linkpath);
-
-  // we're done
-  return 0;
+  if (CreateSymbolicLink(m->linkpath, m->target,
+                         dwFlags | kNtSymbolicLinkFlagAllowUnprivilegedCreate))
+    return 0;
+  uint32_t error = GetLastError();
+  if ((error == kNtErrorInvalidParameter || error == kNtErrorPrivilegeNotHeld) &&
+      CreateSymbolicLink(m->linkpath, m->target, dwFlags))
+    return 0;
+  return __fix_enotdir(__winerr(), m->linkpath);
 }
 
 textwindows static int sys_symlinkat_nt_impl1(const char *target, int newdirfd,

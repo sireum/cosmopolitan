@@ -25,8 +25,8 @@ __msabi extern typeof(CreateSymbolicLink) *const __imp_CreateSymbolicLinkW;
 
 /**
  * Creates symbolic link on the New Technology.
- * @note you need to elevate process privileges before calling this
- * @note this wrapper takes care of ABI, STRACE(), and __winerr()
+ * @note requires symbolic link creation privileges or the Developer Mode flag
+ * @note this wrapper handles the Windows ABI and tracing
  */
 bool32 CreateSymbolicLink(const char16_t *lpSymlinkFileName,
                           const char16_t *lpTargetPathName, uint32_t dwFlags) {
