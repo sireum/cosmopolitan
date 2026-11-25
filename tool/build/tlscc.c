@@ -19,6 +19,7 @@
 #include "libc/calls/calls.h"
 #include "libc/calls/struct/sigaction.h"
 #include "libc/calls/struct/sigset.h"
+#include "libc/dce.h"
 #include "libc/fmt/libgen.h"
 #include "libc/limits.h"
 #include "libc/macros.h"
@@ -144,6 +145,26 @@ static void AppendString(struct Strings *l, const char *s) {
   l->p[l->n++] = s;
 }
 
+static void SetGccCoverageOutput(struct Strings *args, const char *output) {
+  const char *name = output;
+  for (const char *p = output; *p; ++p) {
+    if (*p == '/' || (IsWindows() && *p == '\\'))
+      name = p + 1;
+  }
+  char *directory = StrDup(output);
+  directory[name - output] = 0;
+  struct Strings command = {0};
+  AppendString(&command, args->p[0]);
+  AppendString(&command, "-dumpdir");
+  AppendString(&command, directory);
+  AppendString(&command, "-dumpbase");
+  AppendString(&command, StripExt(name));
+  for (size_t i = 1; i < args->n; ++i)
+    AppendString(&command, args->p[i]);
+  free(args->p);
+  *args = command;
+}
+
 static void PrintStrings(struct Strings *l) {
   for (size_t i = 0; i < l->n; ++i) {
     if (!l->p[i])
@@ -157,6 +178,9 @@ static void PrintStrings(struct Strings *l) {
 static bool IsJoinArg(const char *arg) {
   static const char *const kJoinArgs[] = {
       // keep it sorted
+      "--dumpbase",           //
+      "--dumpbase-ext",       //
+      "--dumpdir",            //
       "--param",             //
       "-A",                  //
       "-D",                  //
@@ -265,6 +289,7 @@ int main(int argc, char *argv[]) {
   // 3. change -o foo.o into -o/tmp/tlscc-xxxx.s
   bool is_compile = false;
   bool want_assembly = false;
+  bool uses_gcc_coverage = false;
   const char *is_not_compile = 0;
   int input_count = 0;
   const char *output = 0;
@@ -272,6 +297,9 @@ int main(int argc, char *argv[]) {
   struct Strings compile_args = {0};
   struct Strings assemble_args = {0};
   for (int i = optind; i < argc; ++i) {
+    if (!strcmp(argv[i], "--coverage") || !strcmp(argv[i], "-ftest-coverage") ||
+        !strcmp(argv[i], "-fprofile-arcs"))
+      uses_gcc_coverage = true;
     if (!is_compile)
       if (!strcmp(argv[i], "-c"))
         is_compile = true;
@@ -388,6 +416,9 @@ int main(int argc, char *argv[]) {
     AppendString(&assemble_args, "-Wno-unused-command-line-argument");
     // suppress all due to mysterious "inconsistent use of MD5 checksums"
     AppendString(&assemble_args, "-Wa,--no-warn");
+  } else if (uses_gcc_coverage) {
+    // GCC otherwise names counters after the temporary assembly.
+    SetGccCoverageOutput(&compile_args, output);
   }
 
   // finish up arguments
